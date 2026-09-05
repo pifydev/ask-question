@@ -23,9 +23,10 @@ import {
   DONE_LABEL,
   OTHER_LABEL,
   formatAnswers,
-  labelFromDisplay,
-  optionDisplay,
+  headlessText,
+  parseSingleRow,
   parseToggleRow,
+  singleRows,
   toggleRows,
   validateQuestions,
   type AskAnswer,
@@ -36,30 +37,29 @@ type UiContext = ExtensionContext;
 
 export default function askQuestion(pi: ExtensionAPI) {
   async function askSingle(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
-    const rows = [...q.options.map(optionDisplay), ...(q.allowOther ? [OTHER_LABEL] : [])];
+    const rows = singleRows(q.options, q.allowOther);
     const picked = await ctx.ui.select(q.question, rows);
     if (picked === undefined) return { question: q.question, answers: [], declined: true };
-    if (picked === OTHER_LABEL) {
+    const action = parseSingleRow(picked, rows, q.options);
+    if (!action) return { question: q.question, answers: [], declined: true };
+    if (action.kind === "other") {
       const text = await ctx.ui.input(q.question, "Type your answer");
       if (text === undefined || !text.trim()) {
         return { question: q.question, answers: [], declined: true };
       }
       return { question: q.question, answers: [], other: text.trim() };
     }
-    const label = labelFromDisplay(picked, q.options);
-    return { question: q.question, answers: label ? [label] : [] };
+    return { question: q.question, answers: [q.options[action.index]!.label] };
   }
 
   async function askMulti(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
     const selected = new Set<number>();
     let other: string | undefined;
     for (;;) {
-      const picked = await ctx.ui.select(
-        `${q.question}\n(toggle options, then ${DONE_LABEL})`,
-        toggleRows(q.options, selected, q.allowOther),
-      );
+      const rows = toggleRows(q.options, selected, q.allowOther);
+      const picked = await ctx.ui.select(`${q.question}\n(toggle options, then ${DONE_LABEL})`, rows);
       if (picked === undefined) return { question: q.question, answers: [], declined: true };
-      const action = parseToggleRow(picked, q.options);
+      const action = parseToggleRow(picked, rows, q.options);
       if (!action) continue;
       if (action.kind === "done") break;
       if (action.kind === "other") {
@@ -114,13 +114,8 @@ export default function askQuestion(pi: ExtensionAPI) {
 
       if (!uiCtx.hasUI) {
         return {
-          content: [
-            {
-              type: "text",
-              text: "No UI is available to ask the user. Proceed with your best judgment and clearly state the assumption you made.",
-            },
-          ],
-          details: { headless: true },
+          content: [{ type: "text", text: headlessText(result.questions) }],
+          details: { headless: true, questions: result.questions },
         };
       }
 

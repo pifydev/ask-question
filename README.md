@@ -9,7 +9,8 @@ Part of the [Pify suite](https://github.com/pifydev). Install with [`pify instal
 - **`ask_question`** — the agent batches up to 4 questions, each with up to 4 options (`label` + `description` trade-offs, recommendation marked "(Recommended)" and listed first), optional `multiSelect`, and free-text via "Other…".
 - **Built entirely on pi's built-in dialogs** (`select`/`input`) — no custom TUI overlay, so it works identically in the terminal and RPC/GUI hosts and can't break with pi UI changes. Multi-select is a checkbox toggle loop with `✓ Done`.
 - **Discipline encoded in the tool description** (zhushanwen's three conditions): only when 2+ reasonable approaches exist, context is already gathered, and a wrong pick means rework. Never for permissions or things the agent can look up.
-- **Declining is an answer**: Esc cleanly reports "the user declined" for the rest of the batch — no error, no re-asking. Headless runs get "proceed with your best judgment and state the assumption" instead of a failure (asking is advisory, unlike the fail-closed safety gates).
+- **Declining is an answer**: Esc cleanly reports "the user declined" for the rest of the batch — no error, no re-asking. Headless runs get the full questionnaire back — every question with its options — plus "proceed with your best judgment and say which option you assumed", so the decision stays in the CI transcript instead of vanishing (asking is advisory, unlike the fail-closed safety gates).
+- **Rows the user can actually pick** (v0.2): two options sharing a label, or one labelled `Other…`, used to render as indistinguishable rows where the second was unselectable. Duplicates are now suffixed, reserved labels renamed, and every pick resolves by its position in the dialog rather than by its text.
 - Structured results return to the model as both readable text and `details.answers`.
 
 ## Why no fancy overlay?

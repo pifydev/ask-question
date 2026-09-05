@@ -5,7 +5,10 @@ import {
   MAX_QUESTIONS,
   OTHER_LABEL,
   formatAnswers,
-  labelFromDisplay,
+  headlessText,
+  normalizeOptions,
+  parseSingleRow,
+  singleRows,
   optionDisplay,
   parseToggleRow,
   toggleRows,
@@ -54,13 +57,23 @@ test("validateQuestions rejects empty input", () => {
   assert.ok(validateQuestions([{ question: "" }]).error);
 });
 
-test("optionDisplay and labelFromDisplay round-trip", () => {
+test("optionDisplay renders label and description", () => {
   const display = optionDisplay(OPTS[0]!);
   assert.ok(display.includes("Postgres (Recommended)"));
   assert.ok(display.includes("—"));
-  assert.equal(labelFromDisplay(display, OPTS), "Postgres (Recommended)");
-  assert.equal(labelFromDisplay(optionDisplay(OPTS[1]!), OPTS), "SQLite");
-  assert.equal(labelFromDisplay("nonsense", OPTS), null);
+});
+
+test("v0.2 parseSingleRow resolves by position, not by text", () => {
+  const rows = singleRows(OPTS, true);
+  assert.deepEqual(parseSingleRow(rows[0]!, rows, OPTS), { kind: "option", index: 0 });
+  assert.deepEqual(parseSingleRow(rows[1]!, rows, OPTS), { kind: "option", index: 1 });
+  assert.deepEqual(parseSingleRow(OTHER_LABEL, rows, OPTS), { kind: "other" });
+  assert.equal(parseSingleRow("nonsense", rows, OPTS), null);
+  // an option that reads like the control row is renamed, then stays an option
+  const shadowed = normalizeOptions([{ label: OTHER_LABEL }]).options;
+  const shadowRows = singleRows(shadowed, true);
+  assert.deepEqual(parseSingleRow(shadowRows[0]!, shadowRows, shadowed), { kind: "option", index: 0 });
+  assert.deepEqual(parseSingleRow(shadowRows[1]!, shadowRows, shadowed), { kind: "other" });
 });
 
 test("optionDisplay truncates long descriptions", () => {
@@ -80,11 +93,11 @@ test("toggleRows renders checkboxes, Done, and Other", () => {
 
 test("parseToggleRow maps rows to actions", () => {
   const rows = toggleRows(OPTS, new Set([0]), true);
-  assert.deepEqual(parseToggleRow(rows[0]!, OPTS), { kind: "toggle", index: 0 });
-  assert.deepEqual(parseToggleRow(rows[1]!, OPTS), { kind: "toggle", index: 1 });
-  assert.deepEqual(parseToggleRow(DONE_LABEL, OPTS), { kind: "done" });
-  assert.deepEqual(parseToggleRow(OTHER_LABEL, OPTS), { kind: "other" });
-  assert.equal(parseToggleRow("[x] mystery", OPTS), null);
+  assert.deepEqual(parseToggleRow(rows[0]!, rows, OPTS), { kind: "toggle", index: 0 });
+  assert.deepEqual(parseToggleRow(rows[1]!, rows, OPTS), { kind: "toggle", index: 1 });
+  assert.deepEqual(parseToggleRow(DONE_LABEL, rows, OPTS), { kind: "done" });
+  assert.deepEqual(parseToggleRow(OTHER_LABEL, rows, OPTS), { kind: "other" });
+  assert.equal(parseToggleRow("[x] mystery", rows, OPTS), null);
 });
 
 test("formatAnswers renders selections, other, declined, empty", () => {
@@ -98,4 +111,51 @@ test("formatAnswers renders selections, other, declined, empty", () => {
   assert.ok(text.includes("A: a; b; Other: and c"));
   assert.ok(text.includes("(the user declined to answer)"));
   assert.ok(text.includes("(no selection)"));
+});
+
+test("v0.2 normalizeOptions makes every row distinguishable", () => {
+  const { options, warnings } = normalizeOptions([
+    { label: "Keep" },
+    { label: "Keep" },
+    { label: "Keep" },
+    { label: OTHER_LABEL },
+  ]);
+  assert.deepEqual(
+    options.map((o) => o.label),
+    ["Keep", "Keep (2)", "Keep (3)", `${OTHER_LABEL} (option)`],
+  );
+  assert.equal(warnings.length, 3);
+  // descriptions survive the rename
+  const withDesc = normalizeOptions([{ label: "a", description: "d" }, { label: "a" }]);
+  assert.equal(withDesc.options[0]!.description, "d");
+  assert.equal(normalizeOptions([{ label: "a" }, { label: "b" }]).warnings.length, 0);
+});
+
+test("v0.2 duplicate labels are selectable through validateQuestions", () => {
+  const result = validateQuestions([
+    { question: "Which one?", options: [{ label: "Keep" }, { label: "Keep" }] },
+  ]);
+  const q = result.questions[0]!;
+  const rows = toggleRows(q.options, new Set(), false);
+  assert.deepEqual(parseToggleRow(rows[1]!, rows, q.options), { kind: "toggle", index: 1 });
+  assert.ok(result.warnings.some((w) => w.includes("duplicate")));
+});
+
+test("v0.2 headlessText replays the questions it would have asked", () => {
+  const { questions } = validateQuestions([
+    {
+      question: "Which database?",
+      options: [{ label: "Postgres", description: "durable" }, { label: "SQLite" }],
+      allowOther: false,
+    },
+    { question: "Anything else?", options: [{ label: "No" }] },
+  ]);
+  const text = headlessText(questions);
+  assert.ok(text.includes("Q: Which database?"));
+  assert.ok(text.includes("- Postgres — durable"));
+  assert.ok(text.includes("- SQLite"));
+  assert.ok(text.includes("Q: Anything else?"));
+  // only the question that allows it advertises free text
+  assert.equal(text.split("(free text)").length - 1, 1);
+  assert.ok(text.includes("state the assumption") || text.includes("which option you assumed"));
 });
