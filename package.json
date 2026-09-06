@@ -1,6 +1,6 @@
 {
   "name": "@pify/ask-question",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Let the model ask instead of guessing: CC AskUserQuestion-shaped tool on built-in dialogs - 1-4 questions, multi-select, Other free-text, works in TUI and RPC",
   "keywords": [
     "pi-package",
