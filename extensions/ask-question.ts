@@ -20,12 +20,16 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Type } from "typebox";
 
 import {
+  ASK_STATE,
   DONE_LABEL,
   OTHER_LABEL,
   formatAnswers,
   headlessText,
+  parseAskRoute,
   parseSingleRow,
   parseToggleRow,
+  replayRounds,
+  routeText,
   singleRows,
   toggleRows,
   validateQuestions,
@@ -132,11 +136,24 @@ export default function askQuestion(pi: ExtensionAPI) {
         }
       }
 
+      // Record the round so /ask can show it later, and a fork keeps its own
+      // history; appended per round, never overwritten.
+      pi.appendEntry(ASK_STATE, { timestamp: Date.now(), answers });
+
       const text = [
         formatAnswers(answers),
         ...(result.warnings.length > 0 ? [`Warnings: ${result.warnings.join("; ")}`] : []),
       ].join("\n\n");
       return { content: [{ type: "text", text }], details: { answers } };
+    },
+  });
+
+  pi.registerCommand("ask", {
+    description: "Show what the agent asked you and how you answered: /ask [last | all]",
+    handler: async (args, ctx) => {
+      if (!ctx.hasUI) return;
+      const rounds = replayRounds(ctx.sessionManager.getBranch() as never);
+      ctx.ui.notify(routeText(parseAskRoute(args ?? ""), rounds), "info");
     },
   });
 }

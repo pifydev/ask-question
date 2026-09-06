@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ASK_STATE,
   DONE_LABEL,
   MAX_QUESTIONS,
   OTHER_LABEL,
   formatAnswers,
   headlessText,
   normalizeOptions,
+  parseAskRoute,
+  replayRounds,
+  routeText,
   parseSingleRow,
   singleRows,
   optionDisplay,
@@ -158,4 +162,52 @@ test("v0.2 headlessText replays the questions it would have asked", () => {
   // only the question that allows it advertises free text
   assert.equal(text.split("(free text)").length - 1, 1);
   assert.ok(text.includes("state the assumption") || text.includes("which option you assumed"));
+});
+
+test("v0.3 /ask routes parse", () => {
+  assert.deepEqual(parseAskRoute(""), { kind: "last" });
+  assert.deepEqual(parseAskRoute("  LAST "), { kind: "last" });
+  assert.deepEqual(parseAskRoute("all"), { kind: "all" });
+  assert.deepEqual(parseAskRoute("history"), { kind: "all" });
+  assert.deepEqual(parseAskRoute("help"), { kind: "help" });
+  assert.deepEqual(parseAskRoute("wat"), { kind: "unknown", input: "wat" });
+});
+
+test("v0.3 rounds are appended, never collapsed", () => {
+  const round = (label: string, ts: number) => ({
+    type: "custom",
+    customType: ASK_STATE,
+    data: { timestamp: ts, answers: [{ question: `Q ${label}?`, answers: [label] }] },
+  });
+  const rounds = replayRounds([
+    round("first", 1),
+    { type: "custom", customType: "other", data: { answers: [] } },
+    { type: "message", data: null },
+    round("second", 2),
+    { type: "custom", customType: ASK_STATE, data: { junk: true } },
+  ]);
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[0]!.answers[0]!.answers[0], "first");
+  assert.equal(rounds[1]!.timestamp, 2);
+  assert.deepEqual(replayRounds([]), []);
+});
+
+test("v0.3 /ask renders the last round and the whole history", () => {
+  const rounds = [
+    { timestamp: new Date(2026, 8, 6, 9, 5).getTime(), answers: [{ question: "DB?", answers: ["Postgres"] }] },
+    { timestamp: new Date(2026, 8, 6, 11, 30).getTime(), answers: [{ question: "Deploy?", answers: [], declined: true }] },
+  ];
+  const last = routeText(parseAskRoute("last"), rounds);
+  assert.ok(last.includes("Deploy?"));
+  assert.ok(last.includes("declined"));
+  assert.ok(last.includes("11:30"));
+  assert.ok(!last.includes("Postgres"));
+
+  const all = routeText(parseAskRoute("all"), rounds);
+  assert.ok(all.includes("#1") && all.includes("#2"));
+  assert.ok(all.includes("Postgres") && all.includes("Deploy?"));
+
+  assert.ok(routeText(parseAskRoute("last"), []).includes("No questions"));
+  assert.ok(routeText(parseAskRoute("all"), []).includes("No questions"));
+  assert.ok(routeText(parseAskRoute("wat"), rounds).includes("Usage:"));
 });

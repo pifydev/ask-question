@@ -184,6 +184,80 @@ export function headlessText(questions: AskQuestion[]): string {
   ].join("\n");
 }
 
+export const ASK_STATE = "ask-question-round";
+
+export interface AskRound {
+  timestamp: number;
+  answers: AskAnswer[];
+}
+
+export interface BranchEntryLike {
+  type?: string;
+  customType?: string;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * Every questionnaire is appended as its own entry (not a last-wins
+ * snapshot): the point of the record is the sequence of decisions, and an
+ * earlier answer stays true after a later one is given.
+ */
+export function replayRounds(entries: BranchEntryLike[]): AskRound[] {
+  const rounds: AskRound[] = [];
+  for (const entry of entries) {
+    if (entry.type !== "custom" || entry.customType !== ASK_STATE) continue;
+    const data = entry.data;
+    if (!isRecord(data) || !Array.isArray(data.answers)) continue;
+    rounds.push({
+      timestamp: typeof data.timestamp === "number" ? data.timestamp : 0,
+      answers: data.answers as AskAnswer[],
+    });
+  }
+  return rounds;
+}
+
+export type AskRoute = { kind: "last" } | { kind: "all" } | { kind: "help" } | { kind: "unknown"; input: string };
+
+export const ASK_USAGE = "Usage: /ask [last | all]";
+
+export function parseAskRoute(raw: string): AskRoute {
+  const text = (raw ?? "").trim().toLowerCase();
+  if (!text || text === "last") return { kind: "last" };
+  if (text === "all" || text === "history") return { kind: "all" };
+  if (text === "help" || text === "?") return { kind: "help" };
+  return { kind: "unknown", input: text };
+}
+
+function stamp(timestamp: number): string {
+  if (!timestamp) return "";
+  const d = new Date(timestamp);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())} `;
+}
+
+/** What /ask prints. */
+export function routeText(route: AskRoute, rounds: AskRound[]): string {
+  switch (route.kind) {
+    case "help":
+      return ASK_USAGE;
+    case "unknown":
+      return `Unknown route "${route.input}". ${ASK_USAGE}`;
+    case "last": {
+      const last = rounds[rounds.length - 1];
+      return last
+        ? `${stamp(last.timestamp)}last questionnaire\n${formatAnswers(last.answers)}`
+        : "No questions have been asked in this session.";
+    }
+    case "all":
+      return rounds.length === 0
+        ? "No questions have been asked in this session."
+        : rounds
+            .map((round, i) => `#${i + 1} ${stamp(round.timestamp)}\n${formatAnswers(round.answers)}`)
+            .join("\n\n");
+  }
+}
+
 /** Text block the model receives. */
 export function formatAnswers(answers: AskAnswer[]): string {
   return answers
