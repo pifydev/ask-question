@@ -1,22 +1,62 @@
 # @pify/ask-question
 
-Let the model ask instead of guessing — a Claude Code `AskUserQuestion`-shaped tool for [pi](https://github.com/earendil-works/pi): 1-4 structured questions, written-out options with trade-offs, multi-select, and an "Other…" free-text path.
+Let the model ask instead of guessing — a structured question tool for [pi](https://github.com/earendil-works/pi). Up to four questions per batch, written-out options with their trade-offs, multi-select, and a free-text path for the answer you didn't offer.
 
 Part of the [Pify suite](https://github.com/pifydev). Install with [`pify install ask-question`](https://github.com/pifydev/cli) or `pi install npm:@pify/ask-question`.
 
-## What it does
+## Why
 
-- **`ask_question`** — the agent batches up to 4 questions, each with up to 4 options (`label` + `description` trade-offs, recommendation marked "(Recommended)" and listed first), optional `multiSelect`, and free-text via "Other…".
-- **Built entirely on pi's built-in dialogs** (`select`/`input`) — no custom TUI overlay, so it works identically in the terminal and RPC/GUI hosts and can't break with pi UI changes. Multi-select is a checkbox toggle loop with `✓ Done`.
-- **Discipline encoded in the tool description** (zhushanwen's three conditions): only when 2+ reasonable approaches exist, context is already gathered, and a wrong pick means rework. Never for permissions or things the agent can look up.
-- **Declining is an answer**: Esc cleanly reports "the user declined" for the rest of the batch — no error, no re-asking. Headless runs get the full questionnaire back — every question with its options — plus "proceed with your best judgment and say which option you assumed", so the decision stays in the CI transcript instead of vanishing (asking is advisory, unlike the fail-closed safety gates).
-- **The decisions stay on the record** (v0.3): every questionnaire is appended to the session as its own entry, and `/ask` prints the last one (`/ask all` for the whole history) with what you chose or declined. Forks and `/reload` keep their own history, because the entries live on the branch.
-- **Rows the user can actually pick** (v0.2): two options sharing a label, or one labelled `Other…`, used to render as indistinguishable rows where the second was unselectable. Duplicates are now suffixed, reserved labels renamed, and every pick resolves by its position in the dialog rather than by its text.
-- Structured results return to the model as both readable text and `details.answers`.
+An agent that will not ask has only one way to handle ambiguity: pick something and keep going. That is fine when the choices are equivalent and expensive when they are not — the wrong guess is discovered after the work has been built on top of it. The cost of asking is one dialog; the cost of guessing wrong is the rework.
 
-## Why no fancy overlay?
+The opposite failure is just as real. An agent that asks about everything turns delegation into an interview, and the questions it asks are usually ones it could have answered by reading a file. So the tool's description spends most of its words on when *not* to use it.
 
-The three big prior arts (6-16k lines each) all build custom TUI overlays — tabbed questionnaires, split-pane previews, searchable lists. They're impressive and fragile. `@henryqw/pi-ask-question` proved 256 lines of built-in dialogs covers the core; this package takes that floor and adds the CC schema, multi-select, and discipline. The overlay experience can return as v0.2 if demand appears.
+## The tool
+
+### `ask_question`
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `questions` | array, 1–4 | Asked in order, each as its own dialog |
+| `questions[].question` | string | The complete question, ending in a question mark |
+| `questions[].options` | array, up to 4 | Omit for a pure free-text prompt |
+| `questions[].options[].label` | string | The choice itself, 1–6 words |
+| `questions[].options[].description` | string, optional | What this choice costs or implies |
+| `questions[].multiSelect` | boolean, optional | Checkbox toggles ending in `✓ Done`, instead of a single pick |
+| `questions[].allowOther` | boolean, optional | Free-text `Other…` path; on by default |
+
+A recommendation is expressed by marking the label `(Recommended)` and listing it first.
+
+Answers return both as readable text and as `details.answers`, so anything reading the tool result does not have to parse prose.
+
+### When it should fire
+
+The tool description holds the agent to three conditions at once:
+
+- two or more reasonable approaches genuinely exist,
+- the context needed to choose has already been gathered,
+- and picking wrong means rework rather than a small correction.
+
+It is explicitly not for permission ("shall I edit this file?") and not for anything the agent could look up.
+
+## Behaviour
+
+- **Built on pi's own dialogs.** `select` and `input`, nothing custom. It therefore behaves identically in the terminal and in RPC or GUI hosts, and cannot break when pi's UI changes. Multi-select is a toggle loop over the same primitive.
+- **Declining is an answer.** Esc reports *the user declined* for the rest of the batch — no error, no re-asking, no second dialog fighting for your attention.
+- **Headless runs get the questionnaire back.** With no UI available the tool returns every question and option as text, plus an instruction to proceed on best judgment and say which option was assumed. The decision then lives in the CI transcript instead of vanishing. Asking is advisory, unlike this suite's fail-closed safety gates: a question that cannot be asked must never stop the run.
+- **Rows you can actually pick.** Two options sharing a label, or one already called `Other…`, used to render as indistinguishable rows where the second could not be selected. Duplicates are suffixed, reserved labels renamed, and every answer resolves by its position in the dialog rather than by its text.
+- **The decisions stay on the record.** Every questionnaire is appended to the session as its own entry. Forks and `/reload` keep their own history, because the entries live on the branch rather than in memory.
+
+## Command
+
+`/ask` — show the last questionnaire and what you chose or declined. `/ask all` prints the whole history for this branch.
+
+## Design notes
+
+There is no custom TUI overlay, and that is deliberate. An overlay means owning a rendering surface: it has to be re-tested against every pi UI change, it does not exist at all in RPC and GUI hosts, and it fails in the one place a question matters most — when something has already gone sideways. Built-in dialogs work everywhere pi works.
+
+## Where this sits in the suite
+
+This is the question a *top-level* agent asks you. A child agent spawned by [`@pify/subagent`](https://github.com/pifydev/subagent) reaches you through its own `ask_supervisor` tool instead, because the parent is blocked inside the tool call that spawned the child and could not answer anyway.
 
 ## License
 
