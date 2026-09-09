@@ -1,6 +1,6 @@
 ---
 name: ask-question
-description: Use when a decision is genuinely ambiguous after gathering context and picking wrong means rework - explains the ask_question discipline and how to write good options
+description: Use when a decision is genuinely ambiguous after gathering context and picking wrong means rework
 ---
 
 # Asking the user
