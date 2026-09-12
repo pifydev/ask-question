@@ -36,11 +36,19 @@ import {
   type AskAnswer,
   type AskQuestion,
 } from "../src/ask.ts";
+import { withUiLock } from "../src/ui-lock.ts";
 
 type UiContext = ExtensionContext;
 
 export default function askQuestion(pi: ExtensionAPI) {
   async function askSingle(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
+    // One question is one dialog session; the whole thing (including the
+    // Other free-text follow-up) holds the suite-wide lock so no other
+    // extension's dialog can open on top of it and orphan this promise.
+    return withUiLock(() => askSingleLocked(ctx, q));
+  }
+
+  async function askSingleLocked(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
     const rows = singleRows(q.options, q.allowOther);
     const picked = await ctx.ui.select(q.question, rows);
     if (picked === undefined) return { question: q.question, answers: [], declined: true };
@@ -57,6 +65,12 @@ export default function askQuestion(pi: ExtensionAPI) {
   }
 
   async function askMulti(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
+    // The toggle loop stays atomic under the lock — a background dialog must
+    // not interleave between two toggles.
+    return withUiLock(() => askMultiLocked(ctx, q));
+  }
+
+  async function askMultiLocked(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
     const selected = new Set<number>();
     let other: string | undefined;
     for (;;) {
