@@ -84,6 +84,7 @@ export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
     name: "ask_question",
     label: "Ask the user",
+    promptSnippet: "Ask the user a question with preset options, when a choice is theirs to make",
     description:
       "Ask the user 1-4 structured questions, each with up to 4 written-out options (mark your " +
       "recommendation by appending ' (Recommended)' to its label and putting it first), optional " +
