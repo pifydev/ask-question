@@ -45,6 +45,7 @@ It is explicitly not for permission ("shall I edit this file?") and not for anyt
 - **Headless runs get the questionnaire back.** With no UI available the tool returns every question and option as text, plus an instruction to proceed on best judgment and say which option was assumed. The decision then lives in the CI transcript instead of vanishing. Asking is advisory, unlike this suite's fail-closed safety gates: a question that cannot be asked must never stop the run.
 - **Rows you can actually pick.** Two options sharing a label, or one already called `Other…`, used to render as indistinguishable rows where the second could not be selected. Duplicates are suffixed, reserved labels renamed, and every answer resolves by its position in the dialog rather than by its text.
 - **The decisions stay on the record.** Every questionnaire is appended to the session as its own entry. Forks and `/reload` keep their own history, because the entries live on the branch rather than in memory.
+- **All of the above is exercised, not asserted.** The dialog flow lives entirely behind `ctx.ui.select` / `ctx.ui.input`, so `test/dialog.test.ts` drives the real shipped `execute` through a stub host with scripted answers: single select, the Other free-text path, multi-select toggling on and off, Esc declining the remaining batch without showing it, the headless branch never opening a dialog, and the round landing in the session entry. What the stub cannot vouch for is pi's own dialog rendering — that is pi's contract, not this package's.
 
 ## Command
 
