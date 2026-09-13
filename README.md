@@ -1,5 +1,7 @@
 # @pify/ask-question
 
+[![npm version](https://img.shields.io/npm/v/@pify/ask-question)](https://www.npmjs.com/package/@pify/ask-question) [![npm downloads](https://img.shields.io/npm/dm/@pify/ask-question)](https://www.npmjs.com/package/@pify/ask-question)
+
 Let the model ask instead of guessing — a structured question tool for [pi](https://github.com/earendil-works/pi). Up to four questions per batch, written-out options with their trade-offs, multi-select, and a free-text path for the answer you didn't offer.
 
 Part of the [Pify suite](https://github.com/pifydev). Install with [`pify install ask-question`](https://github.com/pifydev/cli) or `pi install npm:@pify/ask-question`.
