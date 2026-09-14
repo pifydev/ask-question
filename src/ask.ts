@@ -13,6 +13,8 @@ export interface AskQuestion {
   options: AskOption[];
   multiSelect: boolean;
   allowOther: boolean;
+  /** Optional short chip shown before the question when several fire in a turn. */
+  header?: string;
 }
 
 export interface AskAnswer {
@@ -26,8 +28,22 @@ export interface AskAnswer {
 
 export const MAX_QUESTIONS = 4;
 export const MAX_OPTIONS = 4;
+export const MAX_HEADER = 16;
 export const OTHER_LABEL = "Other…";
 export const DONE_LABEL = "✓ Done";
+
+/**
+ * A closing line appended to the answers the model receives (not to the /ask
+ * history). It nudges the model to act on the answers rather than re-ask or
+ * stall — the small "you have the answer now, proceed" push arhen's envelope
+ * carries. Kept terse to avoid transcript bloat.
+ */
+export const ENVELOPE_SUFFIX = "You have the user's answers — continue with them in mind; do not ask these again.";
+
+/** The dialog title for a question: an optional chip, then the question. */
+export function questionTitle(q: AskQuestion): string {
+  return q.header ? `[${q.header}] ${q.question}` : q.question;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -77,11 +93,16 @@ export function validateQuestions(raw: unknown): ValidationResult {
     }
     const normalized = normalizeOptions(options);
     warnings.push(...normalized.warnings);
+    const header =
+      typeof entry.header === "string" && entry.header.trim()
+        ? entry.header.trim().slice(0, MAX_HEADER)
+        : undefined;
     questions.push({
       question: entry.question.trim(),
       options: normalized.options,
       multiSelect: entry.multiSelect === true,
       allowOther,
+      ...(header ? { header } : {}),
     });
   }
 

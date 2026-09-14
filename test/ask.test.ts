@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {
   ASK_STATE,
   DONE_LABEL,
+  MAX_HEADER,
   MAX_QUESTIONS,
   OTHER_LABEL,
   formatAnswers,
   headlessText,
   normalizeOptions,
   parseAskRoute,
+  questionTitle,
   replayRounds,
   routeText,
   parseSingleRow,
@@ -34,6 +36,19 @@ test("validateQuestions accepts a clean batch", () => {
   assert.equal(result.questions.length, 2);
   assert.equal(result.questions[0]!.allowOther, true);
   assert.equal(result.questions[0]!.multiSelect, false);
+});
+
+test("an optional header is parsed, trimmed and clipped; the title shows it as a chip", () => {
+  const r = validateQuestions([
+    { question: "Which strategy?", options: OPTS, header: "  Auth method  " },
+    { question: "Cache?", options: OPTS, header: "x".repeat(40) },
+    { question: "No header?", options: OPTS },
+  ]);
+  assert.equal(r.questions[0]!.header, "Auth method");
+  assert.equal(r.questions[1]!.header!.length, MAX_HEADER, "clipped to the max");
+  assert.equal(r.questions[2]!.header, undefined);
+  assert.equal(questionTitle(r.questions[0]!), "[Auth method] Which strategy?");
+  assert.equal(questionTitle(r.questions[2]!), "No header?", "no chip when there is no header");
 });
 
 test("validateQuestions drops junk with warnings and caps counts", () => {

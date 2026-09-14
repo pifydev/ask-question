@@ -22,12 +22,14 @@ import { Type } from "typebox";
 import {
   ASK_STATE,
   DONE_LABEL,
+  ENVELOPE_SUFFIX,
   OTHER_LABEL,
   formatAnswers,
   headlessText,
   parseAskRoute,
   parseSingleRow,
   parseToggleRow,
+  questionTitle,
   replayRounds,
   routeText,
   singleRows,
@@ -50,12 +52,13 @@ export default function askQuestion(pi: ExtensionAPI) {
 
   async function askSingleLocked(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
     const rows = singleRows(q.options, q.allowOther);
-    const picked = await ctx.ui.select(q.question, rows);
+    const title = questionTitle(q);
+    const picked = await ctx.ui.select(title, rows);
     if (picked === undefined) return { question: q.question, answers: [], declined: true };
     const action = parseSingleRow(picked, rows, q.options);
     if (!action) return { question: q.question, answers: [], declined: true };
     if (action.kind === "other") {
-      const text = await ctx.ui.input(q.question, "Type your answer");
+      const text = await ctx.ui.input(title, "Type your answer");
       if (text === undefined || !text.trim()) {
         return { question: q.question, answers: [], declined: true };
       }
@@ -73,15 +76,16 @@ export default function askQuestion(pi: ExtensionAPI) {
   async function askMultiLocked(ctx: UiContext, q: AskQuestion): Promise<AskAnswer> {
     const selected = new Set<number>();
     let other: string | undefined;
+    const title = questionTitle(q);
     for (;;) {
       const rows = toggleRows(q.options, selected, q.allowOther);
-      const picked = await ctx.ui.select(`${q.question}\n(toggle options, then ${DONE_LABEL})`, rows);
+      const picked = await ctx.ui.select(`${title}\n(toggle options, then ${DONE_LABEL})`, rows);
       if (picked === undefined) return { question: q.question, answers: [], declined: true };
       const action = parseToggleRow(picked, rows, q.options);
       if (!action) continue;
       if (action.kind === "done") break;
       if (action.kind === "other") {
-        const text = await ctx.ui.input(q.question, "Type your answer");
+        const text = await ctx.ui.input(title, "Type your answer");
         if (text?.trim()) other = text.trim();
         continue;
       }
@@ -99,6 +103,12 @@ export default function askQuestion(pi: ExtensionAPI) {
     name: "ask_question",
     label: "Ask the user",
     promptSnippet: "Ask the user a question with preset options, when a choice is theirs to make",
+    promptGuidelines: [
+      "Batch every question a decision needs into ONE ask_question call (up to 4), not several calls back-to-back.",
+      "Give each question 2-4 written-out options with a short description of each option's trade-off; mark the option you would pick with ' (Recommended)' appended to its label and list it first.",
+      "Set multiSelect only when several options can genuinely be combined; give each question a short header (≤16 chars) when more than one fires at once.",
+      "Do NOT use it for permissions, for anything you can look up yourself, or to confirm a plan you are already confident in — a declined answer is a real answer, so respect it and proceed.",
+    ],
     description:
       "Ask the user 1-4 structured questions, each with up to 4 written-out options (mark your " +
       "recommendation by appending ' (Recommended)' to its label and putting it first), optional " +
@@ -111,6 +121,9 @@ export default function askQuestion(pi: ExtensionAPI) {
       questions: Type.Array(
         Type.Object({
           question: Type.String({ description: "The complete question, ending with a question mark" }),
+          header: Type.Optional(
+            Type.String({ description: "Optional short label (≤16 chars) shown as a chip before the question, e.g. \"Auth method\"" }),
+          ),
           options: Type.Optional(
             Type.Array(
               Type.Object({
@@ -155,9 +168,13 @@ export default function askQuestion(pi: ExtensionAPI) {
       // history; appended per round, never overwritten.
       pi.appendEntry(ASK_STATE, { timestamp: Date.now(), answers });
 
+      const declinedAll = answers.every((a) => a.declined);
       const text = [
         formatAnswers(answers),
         ...(result.warnings.length > 0 ? [`Warnings: ${result.warnings.join("; ")}`] : []),
+        // Nudge the model to act on the answers — unless every question was
+        // declined, where "proceed with your judgment" is the honest close.
+        declinedAll ? "The user declined; proceed with your best judgment." : ENVELOPE_SUFFIX,
       ].join("\n\n");
       return { content: [{ type: "text", text }], details: { answers } };
     },

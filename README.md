@@ -20,6 +20,7 @@ The opposite failure is just as real. An agent that asks about everything turns 
 |---|---|---|
 | `questions` | array, 1–4 | Asked in order, each as its own dialog |
 | `questions[].question` | string | The complete question, ending in a question mark |
+| `questions[].header` | string, optional | A short chip (≤16 chars) shown before the question, e.g. `[Auth method]` — handy when several fire at once |
 | `questions[].options` | array, up to 4 | Omit for a pure free-text prompt |
 | `questions[].options[].label` | string | The choice itself, 1–6 words |
 | `questions[].options[].description` | string, optional | What this choice costs or implies |
