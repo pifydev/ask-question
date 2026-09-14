@@ -102,6 +102,12 @@ export default function askQuestion(pi: ExtensionAPI) {
   pi.registerTool({
     name: "ask_question",
     label: "Ask the user",
+    // Run alone, never in a parallel batch: the model otherwise dispatches
+    // ask_question alongside a bash/edit/write in the same step, and those
+    // side effects execute while the user is still being asked — the answer
+    // then can't change what already happened. withUiLock only serializes
+    // dialogs; this serializes the tool against everything else. (edlsh 0.11.2)
+    executionMode: "sequential",
     promptSnippet: "Ask the user a question with preset options, when a choice is theirs to make",
     promptGuidelines: [
       "Batch every question a decision needs into ONE ask_question call (up to 4), not several calls back-to-back.",
