@@ -29,7 +29,7 @@ function host() {
     execute: (
       id: string,
       params: unknown,
-      signal: undefined,
+      signal: AbortSignal | undefined,
       onUpdate: undefined,
       ctx: unknown,
     ) => Promise<{ content: Array<{ type: string; text: string }>; details?: unknown }>;
@@ -51,17 +51,24 @@ function host() {
 
   const selects: SelectStep[] = [];
   const inputs: Array<string | undefined> = [];
-  const selectLog: Array<{ title: string; rows: string[] }> = [];
+  const selectLog: Array<{ title: string; rows: string[]; signal?: AbortSignal }> = [];
+  const inputLog: Array<{ signal?: AbortSignal }> = [];
+  const controller = new AbortController();
   const ctx = {
     hasUI: true,
     ui: {
-      async select(title: string, rows: string[]) {
-        selectLog.push({ title, rows });
+      async select(title: string, rows: string[], opts?: { signal?: AbortSignal }) {
+        selectLog.push({ title, rows, signal: opts?.signal });
+        // Mirror pi: an already-aborted signal resolves the dialog to undefined
+        // without ever showing it, so a scripted step is not consumed.
+        if (opts?.signal?.aborted) return undefined;
         const step = selects.shift();
         if (!step) throw new Error(`unscripted select: ${title}`);
         return step(title, rows);
       },
-      async input() {
+      async input(_title: string, _placeholder: string, opts?: { signal?: AbortSignal }) {
+        inputLog.push({ signal: opts?.signal });
+        if (opts?.signal?.aborted) return undefined;
         if (inputs.length === 0) throw new Error("unscripted input");
         return inputs.shift();
       },
@@ -74,8 +81,11 @@ function host() {
     selects,
     inputs,
     selectLog,
+    inputLog,
     ctx,
-    ask: (params: unknown) => tool!.execute("t1", params, undefined, undefined, ctx),
+    controller,
+    ask: (params: unknown, signal: AbortSignal | undefined = controller.signal) =>
+      tool!.execute("t1", params, signal, undefined, ctx),
   };
 }
 
@@ -154,6 +164,62 @@ test("Esc declines the whole remaining batch without asking it", async () => {
   // The user opted out of the questionnaire; showing question 2 anyway is
   // exactly what the early-out exists to prevent.
   assert.equal(h.selectLog.length, 1);
+});
+
+test("Other then Esc returns to the select, does not decline the batch", async () => {
+  const h = host();
+  // Pick Other…, back out of the free-text box (Esc → undefined), land back
+  // on the option list, then pick Tabs. The mis-click must not throw the
+  // question away.
+  h.selects.push(pickRow(OTHER_LABEL), pickRow("Tabs"));
+  h.inputs.push(undefined);
+  const result = await h.ask({ questions: [q()] });
+  const answer = (result.details as { answers: Array<{ answers: string[]; declined?: boolean }> }).answers[0]!;
+  assert.deepEqual(answer.answers, ["Tabs"]);
+  assert.notEqual(answer.declined, true);
+  // Two visits to the select: the one before Other, the one after backing out.
+  assert.equal(h.selectLog.length, 2);
+});
+
+test("the AbortSignal is forwarded to ui.select and ui.input", async () => {
+  const h = host();
+  h.selects.push(pickRow(OTHER_LABEL));
+  h.inputs.push("free text");
+  await h.ask({ questions: [q()] });
+  assert.equal(h.selectLog[0]!.signal, h.controller.signal);
+  assert.equal(h.inputLog[0]!.signal, h.controller.signal);
+});
+
+test("an aborted dialog is reported as interrupted, not declined, and not recorded", async () => {
+  const h = host();
+  // The dialog is aborted while on screen (the way pi's abort resolves it):
+  // the controller fires and the select returns undefined.
+  h.selects.push(() => {
+    h.controller.abort();
+    return undefined;
+  });
+  const result = await h.ask({ questions: [q()] });
+  assert.equal((result.details as { aborted?: boolean }).aborted, true);
+  assert.match(result.content[0]!.text, /Interrupted/i);
+  assert.doesNotMatch(result.content[0]!.text, /declined/i);
+  // An interruption is not a decision: nothing lands in the session record.
+  assert.equal(h.appended.length, 0);
+});
+
+test("an abort before the second question stops the loop and records nothing", async () => {
+  const h = host();
+  h.selects.push((_title, rows) => {
+    // Answer question 1, but the turn is aborted in the same beat — question 2
+    // must never be shown and the round must not be recorded.
+    h.controller.abort();
+    return rows.find((r) => r.includes("Tabs"))!;
+  });
+  const result = await h.ask({
+    questions: [q(), { question: "Semicolons?", options: [{ label: "Yes" }, { label: "No" }] }],
+  });
+  assert.equal((result.details as { aborted?: boolean }).aborted, true);
+  assert.equal(h.selectLog.length, 1);
+  assert.equal(h.appended.length, 0);
 });
 
 test("every round is appended to the session, declined or not", async () => {

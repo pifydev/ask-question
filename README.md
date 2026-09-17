@@ -23,7 +23,7 @@ The opposite failure is just as real. An agent that asks about everything turns 
 | `questions[].header` | string, optional | A short chip (≤16 chars) shown before the question, e.g. `[Auth method]` — handy when several fire at once |
 | `questions[].options` | array, up to 4 | Omit for a pure free-text prompt |
 | `questions[].options[].label` | string | The choice itself, 1–6 words |
-| `questions[].options[].description` | string, optional | What this choice costs or implies |
+| `questions[].options[].description` | string, optional | What this choice costs or implies (≤ 60 chars are shown in the dialog; longer is clipped) |
 | `questions[].multiSelect` | boolean, optional | Checkbox toggles ending in `✓ Done`, instead of a single pick |
 | `questions[].allowOther` | boolean, optional | Free-text `Other…` path; on by default |
 
@@ -44,7 +44,8 @@ It is explicitly not for permission ("shall I edit this file?") and not for anyt
 ## Behaviour
 
 - **Built on pi's own dialogs.** `select` and `input`, nothing custom. It therefore behaves identically in the terminal and in RPC or GUI hosts, and cannot break when pi's UI changes. Multi-select is a toggle loop over the same primitive.
-- **Declining is an answer.** Esc reports *the user declined* for the rest of the batch — no error, no re-asking, no second dialog fighting for your attention.
+- **Declining is an answer.** Esc on a question's option list reports *the user declined* for that question and the rest of the batch — no error, no re-asking, no second dialog fighting for your attention. Backing out of the free-text `Other…` box (Esc or an empty submit) is not a decline: it returns you to the option list, so a mis-click on `Other…` never throws the questionnaire away.
+- **An interruption is not a decline.** If the turn is aborted while a question is open (an RPC-client abort, another extension calling `abort()`), the tool reports *interrupted before the user answered* and records nothing — the model is told to ask again if the decision still matters, rather than reading a decline the user never made.
 - **Headless runs get the questionnaire back.** With no UI available the tool returns every question and option as text, plus an instruction to proceed on best judgment and say which option was assumed. The decision then lives in the CI transcript instead of vanishing. Asking is advisory, unlike this suite's fail-closed safety gates: a question that cannot be asked must never stop the run.
 - **Rows you can actually pick.** Two options sharing a label, or one already called `Other…`, used to render as indistinguishable rows where the second could not be selected. Duplicates are suffixed, reserved labels renamed, and every answer resolves by its position in the dialog rather than by its text.
 - **The decisions stay on the record.** Every questionnaire is appended to the session as its own entry. Forks and `/reload` keep their own history, because the entries live on the branch rather than in memory.

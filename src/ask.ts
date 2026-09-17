@@ -140,17 +140,24 @@ export function normalizeOptions(options: AskOption[]): { options: AskOption[]; 
   return { options: result, warnings };
 }
 
-/** Display string for one option in the select dialog. */
-export function optionDisplay(option: AskOption): string {
+export const DESC_CLIP = 60;
+
+/**
+ * Display string for one option. In the select dialog the description is
+ * clipped to keep the row on one line (`clip`, the default); the headless
+ * replay passes `clip: false` because there is no row width to protect there
+ * and the transcript should carry the model's full trade-off, not a stub.
+ */
+export function optionDisplay(option: AskOption, clip = true): string {
   const desc = option.description
-    ? ` — ${option.description.length > 60 ? `${option.description.slice(0, 60)}…` : option.description}`
+    ? ` — ${clip && option.description.length > DESC_CLIP ? `${option.description.slice(0, DESC_CLIP)}…` : option.description}`
     : "";
   return `${option.label}${desc}`;
 }
 
 /** Rows for a single-select question: the options, then Other… if allowed. */
 export function singleRows(options: AskOption[], allowOther: boolean): string[] {
-  const rows = options.map(optionDisplay);
+  const rows = options.map((o) => optionDisplay(o));
   if (allowOther) rows.push(OTHER_LABEL);
   return rows;
 }
@@ -192,7 +199,7 @@ export function parseToggleRow(row: string, rows: string[], options: AskOption[]
  */
 export function headlessText(questions: AskQuestion[]): string {
   const blocks = questions.map((q) => {
-    const options = q.options.map((o) => `  - ${optionDisplay(o)}`);
+    const options = q.options.map((o) => `  - ${optionDisplay(o, false)}`);
     if (q.allowOther) options.push("  - (free text)");
     return [`Q: ${q.question}`, ...options].join("\n");
   });
