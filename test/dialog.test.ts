@@ -245,3 +245,32 @@ test("invalid questions are rejected before any dialog opens", async () => {
   await assert.rejects(() => h.ask({ questions: [] }));
   assert.equal(h.selectLog.length, 0);
 });
+
+test("Back revises the previous answer; the row is offered from the second question on", async () => {
+  const h = host();
+  const q2 = { question: "Semicolons?", options: [{ label: "Yes" }, { label: "No" }] };
+  h.selects.push(pickRow("Tabs")); // q1
+  h.selects.push(pickRow("Back")); // q2: go back
+  h.selects.push(pickRow("Spaces")); // q1 again, revised
+  h.selects.push(pickRow("Yes")); // q2
+  const result = await h.ask({ questions: [q(), q2] });
+  const answers = (result.details as { answers: Array<{ answers: string[] }> }).answers;
+  assert.deepEqual(answers.map((a) => a.answers), [["Spaces"], ["Yes"]]);
+  assert.ok(!h.selectLog[0]!.rows.some((r) => r.includes("Back")), "no Back on the first question");
+  assert.ok(h.selectLog[1]!.rows.some((r) => r.includes("Back")), "Back offered on the second");
+  assert.equal(h.selectLog.length, 4);
+  // One record, holding the revised answers.
+  assert.equal(h.appended.length, 1);
+});
+
+test("Back works on a multi-select question too, and Esc still declines the rest", async () => {
+  const h = host();
+  const q2 = { question: "Which?", options: [{ label: "A" }, { label: "B" }], multiSelect: true };
+  h.selects.push(pickRow("Tabs")); // q1
+  h.selects.push(pickRow("Back")); // q2 (multi): back
+  h.selects.push(esc); // q1 again: decline everything
+  const result = await h.ask({ questions: [q(), q2] });
+  const answers = (result.details as { answers: Array<{ declined?: boolean }> }).answers;
+  assert.equal(answers.length, 2);
+  assert.ok(answers.every((a) => a.declined));
+});

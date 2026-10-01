@@ -42,16 +42,23 @@ import { withUiLock } from "../src/ui-lock.ts";
 
 type UiContext = ExtensionContext;
 
+/** The row that returns to the previous question; shown from the second question on. */
+export const BACK_LABEL = "← Back (revise the previous answer)";
+
+/** What a dialog returns when the user asked to go back instead of answering. */
+type Back = { back: true };
+
 export default function askQuestion(pi: ExtensionAPI) {
-  async function askSingle(ctx: UiContext, q: AskQuestion, signal?: AbortSignal): Promise<AskAnswer> {
+  async function askSingle(ctx: UiContext, q: AskQuestion, signal?: AbortSignal, canGoBack = false): Promise<AskAnswer | Back> {
     // One question is one dialog session; the whole thing (including the
     // Other free-text follow-up) holds the suite-wide lock so no other
     // extension's dialog can open on top of it and orphan this promise.
-    return withUiLock(() => askSingleLocked(ctx, q, signal));
+    return withUiLock(() => askSingleLocked(ctx, q, signal, canGoBack));
   }
 
-  async function askSingleLocked(ctx: UiContext, q: AskQuestion, signal?: AbortSignal): Promise<AskAnswer> {
-    const rows = singleRows(q.options, q.allowOther);
+  async function askSingleLocked(ctx: UiContext, q: AskQuestion, signal?: AbortSignal, canGoBack = false): Promise<AskAnswer | Back> {
+    const base = singleRows(q.options, q.allowOther);
+    const rows = canGoBack ? [...base, BACK_LABEL] : base;
     const title = questionTitle(q);
     // A loop, matching multi-select: only Esc on the SELECT is the batch-level
     // decline. Backing out of the Other free-text box (Esc or an empty submit)
@@ -60,7 +67,8 @@ export default function askQuestion(pi: ExtensionAPI) {
     for (;;) {
       const picked = await ctx.ui.select(title, rows, { signal });
       if (picked === undefined) return { question: q.question, answers: [], declined: true };
-      const action = parseSingleRow(picked, rows, q.options);
+      if (picked === BACK_LABEL) return { back: true };
+      const action = parseSingleRow(picked, base, q.options);
       if (!action) continue;
       if (action.kind === "other") {
         const text = await ctx.ui.input(title, "Type your answer", { signal });
@@ -71,21 +79,23 @@ export default function askQuestion(pi: ExtensionAPI) {
     }
   }
 
-  async function askMulti(ctx: UiContext, q: AskQuestion, signal?: AbortSignal): Promise<AskAnswer> {
+  async function askMulti(ctx: UiContext, q: AskQuestion, signal?: AbortSignal, canGoBack = false): Promise<AskAnswer | Back> {
     // The toggle loop stays atomic under the lock — a background dialog must
     // not interleave between two toggles.
-    return withUiLock(() => askMultiLocked(ctx, q, signal));
+    return withUiLock(() => askMultiLocked(ctx, q, signal, canGoBack));
   }
 
-  async function askMultiLocked(ctx: UiContext, q: AskQuestion, signal?: AbortSignal): Promise<AskAnswer> {
+  async function askMultiLocked(ctx: UiContext, q: AskQuestion, signal?: AbortSignal, canGoBack = false): Promise<AskAnswer | Back> {
     const selected = new Set<number>();
     let other: string | undefined;
     const title = questionTitle(q);
     for (;;) {
-      const rows = toggleRows(q.options, selected, q.allowOther);
+      const base = toggleRows(q.options, selected, q.allowOther);
+      const rows = canGoBack ? [...base, BACK_LABEL] : base;
       const picked = await ctx.ui.select(`${title}\n(toggle options, then ${DONE_LABEL})`, rows, { signal });
       if (picked === undefined) return { question: q.question, answers: [], declined: true };
-      const action = parseToggleRow(picked, rows, q.options);
+      if (picked === BACK_LABEL) return { back: true };
+      const action = parseToggleRow(picked, base, q.options);
       if (!action) continue;
       if (action.kind === "done") break;
       if (action.kind === "other") {
@@ -177,19 +187,31 @@ export default function askQuestion(pi: ExtensionAPI) {
         details: { aborted: true, answers },
       });
 
+      // Index-based so the user can step back: a later question can reveal
+      // that an earlier choice was wrong, and Esc (decline the rest) was the
+      // only way out. Back re-asks the previous question fresh.
       const answers: AskAnswer[] = [];
-      for (const q of result.questions) {
+      let index = 0;
+      while (index < result.questions.length) {
+        const q = result.questions[index]!;
         if (signal?.aborted) return interrupted();
-        const answer = q.multiSelect ? await askMulti(uiCtx, q, signal) : await askSingle(uiCtx, q, signal);
+        const canGoBack = index > 0;
+        const answer = q.multiSelect ? await askMulti(uiCtx, q, signal, canGoBack) : await askSingle(uiCtx, q, signal, canGoBack);
         if (signal?.aborted) return interrupted();
-        answers.push(answer);
+        if ("back" in answer) {
+          index -= 1;
+          answers.length = index;
+          continue;
+        }
+        answers[index] = answer;
         if (answer.declined) {
           // Esc aborts the rest — the user is opting out of the questionnaire.
-          for (const rest of result.questions.slice(answers.length)) {
+          for (const rest of result.questions.slice(index + 1)) {
             answers.push({ question: rest.question, answers: [], declined: true });
           }
           break;
         }
+        index += 1;
       }
       if (signal?.aborted) return interrupted();
 
